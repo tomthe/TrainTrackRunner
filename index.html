@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Subway Sync</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./game.js"></script>
+</head>
+<body>
+  <div class="app-frame">
+    <canvas id="gameCanvas" aria-label="Subway Sync game canvas"></canvas>
+
+    <header class="hud-bar">
+      <div class="brand-panel">
+        <p class="eyebrow">dual-run endless sprint</p>
+        <h1>Subway Sync</h1>
+        <p id="modeLabel" class="mode-copy"></p>
+      </div>
+
+      <div id="scoreboard" class="scoreboard" aria-live="polite"></div>
+    </header>
+
+    <footer class="footer-bar">
+      <p id="controlHint" class="control-hint"></p>
+      <button id="restartInline" class="ghost-button" type="button">Restart</button>
+    </footer>
+
+    <div id="touchPrompt" class="touch-prompt hidden">Swipe left or right to change lanes. Swipe up to jump. Swipe down to slide.</div>
+
+    <section id="overlay" class="overlay hidden" aria-live="polite">
+      <div class="overlay-card">
+        <p class="eyebrow">run complete</p>
+        <h2 id="overlayTitle">Track cleared</h2>
+        <p id="overlaySummary" class="overlay-summary"></p>
+        <button id="restartOverlay" class="primary-button" type="button">Restart run</button>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
