@@ -43,6 +43,11 @@ const CONFIG = {
   trainWidth: 2.45,
   trainRoofY: 3.08,
   trainLandingAssistHeight: 1.35,
+  rampLength: 5.2,
+  rampGap: 0.3,
+  slowTrainChance: 0.28,
+  slowTrainSpeedRange: [0.55, 0.78],
+  maxLifeOrbs: 6,
   playerCollisionRadius: 0.78,
   bumpRadius: 1.16,
   bumpForce: 8.6,
@@ -65,9 +70,9 @@ const PLAYER_PROFILES = [
     visor: 0x3a0d00,
   },
   {
-    name: "Aqua Dash",
-    accent: "#5ae6ff",
-    suit: 0x2ba6c8,
+    name: "Schwarz",
+    accent: "#000000b6",
+    suit: 0x072732,
     trim: 0xdcfbff,
     visor: 0x072732,
   },
@@ -435,6 +440,27 @@ function createRunner(profile) {
   chestPlate.position.set(0, 2.16, 0.34);
   figure.add(chestPlate);
 
+  const lifeOrbMaterial = new THREE.MeshStandardMaterial({
+    color: profile.trim,
+    roughness: 0.2,
+    metalness: 0.18,
+    emissive: new THREE.Color(profile.accent),
+    emissiveIntensity: 0.55,
+  });
+  const lifeOrbGeometry = new THREE.SphereGeometry(0.11, 12, 12);
+  const lifeOrbAnchor = new THREE.Group();
+  lifeOrbAnchor.position.set(0, 2.06, 0.5);
+  figure.add(lifeOrbAnchor);
+
+  const lifeOrbs = Array.from({ length: CONFIG.maxLifeOrbs }, (_, index) => {
+    const orb = setMeshShadows(new THREE.Mesh(lifeOrbGeometry, lifeOrbMaterial));
+    const column = index % 3;
+    const row = Math.floor(index / 3);
+    orb.position.set((column - 1) * 0.2, 0.13 - row * 0.26, 0);
+    lifeOrbAnchor.add(orb);
+    return orb;
+  });
+
   const head = setMeshShadows(new THREE.Mesh(geometries.runnerHead, trimMaterial));
   head.position.y = 3.42;
   figure.add(head);
@@ -499,6 +525,32 @@ function createRunner(profile) {
   pack.visible = false;
   figure.add(pack);
 
+  const powerBarTrackMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1a2330,
+    roughness: 0.84,
+    metalness: 0.08,
+    emissive: 0x0a0f16,
+    emissiveIntensity: 0.18,
+  });
+  const powerBarFillMaterial = new THREE.MeshStandardMaterial({
+    color: 0x6ff8ff,
+    roughness: 0.24,
+    metalness: 0.18,
+    emissive: 0x6ff8ff,
+    emissiveIntensity: 0.8,
+  });
+  const powerBar = new THREE.Group();
+  powerBar.position.set(0, 2.3, -0.56);
+  powerBar.visible = false;
+
+  const powerBarTrack = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.1, 0.06), powerBarTrackMaterial));
+  powerBar.add(powerBarTrack);
+
+  const powerBarFill = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.06, 0.05), powerBarFillMaterial));
+  powerBarFill.position.z = 0.01;
+  powerBar.add(powerBarFill);
+  figure.add(powerBar);
+
   const magnetRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.05, 12, 28), materials.magnetTip);
   magnetRing.rotation.x = Math.PI / 2;
   magnetRing.position.y = 1.85;
@@ -514,11 +566,14 @@ function createRunner(profile) {
   return {
     root,
     figure,
+    lifeOrbs,
     leftArmPivot,
     rightArmPivot,
     leftLegPivot,
     rightLegPivot,
     pack,
+    powerBar,
+    powerBarFill,
     leftFlame,
     rightFlame,
     magnetRing,
@@ -601,6 +656,28 @@ function createTrainMesh(carCount) {
   return { mesh: group, length: totalLength, width: CONFIG.trainWidth, roofY: CONFIG.trainRoofY };
 }
 
+function createRampMesh() {
+  const group = new THREE.Group();
+  const length = CONFIG.rampLength;
+  const width = CONFIG.trainWidth - 0.24;
+  const thickness = 0.26;
+  const slopeAngle = Math.asin(Math.min(0.92, CONFIG.trainRoofY / length));
+  const lowEdgeY = 0.05;
+  const centerY = lowEdgeY - thickness * 0.5 * Math.cos(slopeAngle) + length * 0.5 * Math.sin(slopeAngle);
+
+  const deck = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(width, thickness, length), materials.serviceRoad), true);
+  deck.position.y = centerY;
+  deck.rotation.x = slopeAngle;
+  group.add(deck);
+
+  const guide = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(width * 0.16, 0.05, length * 0.92), materials.gateGlow), true);
+  guide.position.set(0, centerY + 0.06, 0);
+  guide.rotation.x = slopeAngle;
+  group.add(guide);
+
+  return { mesh: group, length, width, roofY: CONFIG.trainRoofY };
+}
+
 function createBarrierMesh() {
   const group = new THREE.Group();
   const frame = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(2.08, 0.9, 0.78), materials.barrier), true);
@@ -675,17 +752,19 @@ function createPickupMesh(type) {
   return group;
 }
 
-function addObstacle(type, laneIndex, data) {
+function addObstacle(type, laneIndex, data, zPosition = CONFIG.spawnZ) {
   const obstacle = {
     id: obstacleId += 1,
     type,
     lane: laneIndex,
     mesh: data.mesh,
     x: laneX(laneIndex),
-    z: CONFIG.spawnZ,
+    z: zPosition,
+    length: data.length,
     halfLength: data.length * 0.5,
     width: data.width,
     roofY: data.roofY,
+    speedMultiplier: data.speedMultiplier ?? 1,
   };
 
   obstacle.mesh.position.set(obstacle.x, 0, obstacle.z);
@@ -694,7 +773,7 @@ function addObstacle(type, laneIndex, data) {
   return obstacle;
 }
 
-function spawnCoinLine(laneIndex, startZ, count, step, baseY) {
+function spawnCoinLine(laneIndex, startZ, count, step, baseY, options = {}) {
   for (let index = 0; index < count; index += 1) {
     const mesh = createPickupMesh("coin");
     const pickup = {
@@ -705,6 +784,7 @@ function spawnCoinLine(laneIndex, startZ, count, step, baseY) {
       baseY: baseY + Math.sin(index * 0.55) * 0.18,
       currentY: baseY,
       bobOffset: randomBetween(0, Math.PI * 2),
+      speedMultiplier: options.speedMultiplier ?? 1,
       mesh,
     };
     mesh.position.set(pickup.x, pickup.baseY, pickup.z);
@@ -730,15 +810,39 @@ function spawnPowerup(type, laneIndex, zPosition) {
   pickups.push(pickup);
 }
 
+function spawnTrainPack(laneIndex) {
+  const carCount = randomInt(CONFIG.trainCars[0], CONFIG.trainCars[1]);
+  const includeRamp = Math.random() < 0.38;
+  const train = createTrainMesh(carCount);
+  train.speedMultiplier = includeRamp
+    ? 1
+    : (Math.random() < CONFIG.slowTrainChance
+        ? randomBetween(CONFIG.slowTrainSpeedRange[0], CONFIG.slowTrainSpeedRange[1])
+        : 1);
+
+  let trainZ = CONFIG.spawnZ;
+  if (includeRamp) {
+    const ramp = addObstacle("ramp", laneIndex, createRampMesh(), CONFIG.spawnZ);
+    trainZ = ramp.z - ramp.halfLength - CONFIG.rampGap - train.length * 0.5;
+  }
+
+  const obstacle = addObstacle("train", laneIndex, train, trainZ);
+  spawnCoinLine(
+    laneIndex,
+    obstacle.z + obstacle.halfLength - 2,
+    carCount * 3,
+    2.9,
+    train.roofY + 1.12,
+    { speedMultiplier: obstacle.speedMultiplier }
+  );
+}
+
 function spawnHazardPack() {
   const laneIndex = randomInt(0, game.laneCount - 1);
   const roll = Math.random();
 
   if (roll < 0.42) {
-    const carCount = randomInt(CONFIG.trainCars[0], CONFIG.trainCars[1]);
-    const train = createTrainMesh(carCount);
-    const obstacle = addObstacle("train", laneIndex, train);
-    spawnCoinLine(laneIndex, obstacle.z + obstacle.halfLength - 2, carCount * 3, 2.9, train.roofY + 1.12);
+    spawnTrainPack(laneIndex);
     return;
   }
 
@@ -756,20 +860,26 @@ function spawnHazardPack() {
 function spawnPickupPack() {
   const laneIndex = randomInt(0, game.laneCount - 1);
   const roll = Math.random();
+  const canSpawnJetpack = !players.some((player) => player.jetpackTimer > 0) && !pickups.some((pickup) => pickup.type === "jetpack");
 
-  if (roll < 0.62) {
+  if (roll < 0.7) {
     spawnCoinLine(laneIndex, CONFIG.spawnZ - 4, randomInt(5, 9), 2.8, 1.25);
     return;
   }
 
-  if (roll < 0.82) {
+  if (roll < 0.92) {
     spawnPowerup("magnet", laneIndex, CONFIG.spawnZ - 2);
     spawnCoinLine(laneIndex, CONFIG.spawnZ - 8, randomInt(6, 9), 2.7, 1.3);
     return;
   }
 
+  if (!canSpawnJetpack) {
+    spawnCoinLine(laneIndex, CONFIG.spawnZ - 5, randomInt(6, 10), 2.7, 1.35);
+    return;
+  }
+
   spawnPowerup("jetpack", laneIndex, CONFIG.spawnZ - 2);
-  spawnCoinLine(laneIndex, CONFIG.spawnZ - 10, randomInt(8, 12), 2.55, 5.6);
+  spawnCoinLine(laneIndex, CONFIG.spawnZ - 10, randomInt(8, 12), 2.55, Math.max(4.8, CONFIG.jetpackHeight - 0.2));
 }
 
 function createScorePanel(player) {
@@ -908,6 +1018,24 @@ function getJetpackInput(player) {
   return Number(pressed.has("ArrowUp")) - Number(pressed.has("ArrowDown"));
 }
 
+function getDisplayedPowerState(player) {
+  if (player.jetpackTimer > 0) {
+    return {
+      ratio: THREE.MathUtils.clamp(player.jetpackTimer / CONFIG.jetpackDuration, 0, 1),
+      color: 0x6ff8ff,
+    };
+  }
+
+  if (player.magnetTimer > 0) {
+    return {
+      ratio: THREE.MathUtils.clamp(player.magnetTimer / CONFIG.magnetDuration, 0, 1),
+      color: 0xf85656,
+    };
+  }
+
+  return null;
+}
+
 function updatePanel(player) {
   if (!player.panel) {
     return;
@@ -955,12 +1083,12 @@ function updatePanel(player) {
 function updateHudCopy() {
   if (game.isTouchMode) {
     modeLabel.textContent = "Outdoor solo run. Three hearts, quick respawns, and easier train roofs.";
-    controlHint.textContent = "Swipe left or right to switch tracks. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
+    controlHint.textContent = "Swipe left or right to switch tracks. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height. Some trains arrive with ramps or drift more slowly.";
     touchPrompt.textContent = "Swipe left or right to change lanes. Swipe up to jump, swipe down to slide, and while jetpacking swipe up or down to change height.";
     touchPrompt.classList.remove("hidden");
   } else {
     modeLabel.textContent = "Shared duel. Three hearts each, 10,000 points steals one heart, and train roofs are easier to ride.";
-    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height, and just step off train roofs to fall back down.";
+    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height, use ramps onto trains, and just step off roofs to fall back down.";
     touchPrompt.classList.add("hidden");
   }
 }
@@ -1199,7 +1327,7 @@ function updateSpawning(delta) {
 function moveObstacles(delta) {
   for (let index = obstacles.length - 1; index >= 0; index -= 1) {
     const obstacle = obstacles[index];
-    obstacle.z += game.speed * delta;
+    obstacle.z += game.speed * obstacle.speedMultiplier * delta;
     obstacle.mesh.position.z = obstacle.z;
     if (obstacle.z - obstacle.halfLength > CONFIG.cleanupZ) {
       obstacleRoot.remove(obstacle.mesh);
@@ -1310,6 +1438,26 @@ function findSupportingTrain(player) {
   });
 }
 
+function getRampSupportY(ramp) {
+  const localZ = CONFIG.playerZ - ramp.z;
+  const progress = THREE.MathUtils.clamp((ramp.halfLength - localZ) / (ramp.halfLength * 2), 0, 1);
+  return progress * ramp.roofY;
+}
+
+function findSupportingRamp(player) {
+  return obstacles.find((obstacle) => {
+    if (obstacle.type !== "ramp") {
+      return false;
+    }
+
+    const withinZ = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength + 0.2;
+    const withinX = Math.abs(obstacle.x - player.x) < obstacle.width * 0.5;
+    const supportY = getRampSupportY(obstacle);
+    const landingWindow = player.y <= supportY + 0.75 && player.verticalVelocity <= 6.2;
+    return withinZ && withinX && landingWindow;
+  });
+}
+
 function loseLife(player) {
   if (!player.alive || player.invulnerableTimer > 0) {
     return;
@@ -1332,6 +1480,8 @@ function resolveSupportsAndHazards() {
       return;
     }
 
+    let supportingRamp = null;
+
     if (player.jetpackTimer <= 0) {
       const train = findSupportingTrain(player);
       if (train) {
@@ -1340,13 +1490,21 @@ function resolveSupportsAndHazards() {
         player.grounded = true;
         player.onTrainId = train.id;
         player.dropThroughTrainId = null;
-      } else if (player.lastTrainId && player.y > 0.05) {
-        player.dropThroughTrainId = player.lastTrainId;
-      } else if (player.y <= 0) {
-        player.y = 0;
-        player.verticalVelocity = 0;
-        player.grounded = true;
-        player.dropThroughTrainId = null;
+      } else {
+        supportingRamp = findSupportingRamp(player);
+        if (supportingRamp) {
+          player.y = getRampSupportY(supportingRamp);
+          player.verticalVelocity = 0;
+          player.grounded = true;
+          player.dropThroughTrainId = null;
+        } else if (player.lastTrainId && player.y > 0.05) {
+          player.dropThroughTrainId = player.lastTrainId;
+        } else if (player.y <= 0) {
+          player.y = 0;
+          player.verticalVelocity = 0;
+          player.grounded = true;
+          player.dropThroughTrainId = null;
+        }
       }
     }
 
@@ -1362,7 +1520,8 @@ function resolveSupportsAndHazards() {
 
       if (obstacle.type === "train") {
         const withinTrain = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength + 0.45;
-        const safelyAbove = player.y >= obstacle.roofY - 0.18 || player.onTrainId === obstacle.id || player.dropThroughTrainId === obstacle.id;
+        const safelyOnRamp = Boolean(supportingRamp) && player.y >= getRampSupportY(supportingRamp) - 0.1;
+        const safelyAbove = player.y >= obstacle.roofY - 0.18 || player.onTrainId === obstacle.id || player.dropThroughTrainId === obstacle.id || safelyOnRamp;
         if (withinTrain && !safelyAbove) {
           loseLife(player);
         }
@@ -1403,10 +1562,23 @@ function applyPickup(player, pickup) {
   player.jetpackTargetY = THREE.MathUtils.clamp(Math.max(player.y + 1.2, CONFIG.jetpackHeight), CONFIG.jetpackMinHeight, CONFIG.jetpackMaxHeight);
 }
 
+function canCollectPickup(player, pickup) {
+  const overlapZ = Math.abs(pickup.z - CONFIG.playerZ) < 1.05;
+  const overlapX = Math.abs(pickup.x - player.x) < (player.jetpackTimer > 0 ? 0.96 : 0.8);
+  const relativeY = pickup.currentY - player.y;
+  const minY = player.jetpackTimer > 0 ? -0.45 : 0.05;
+  const maxY = player.jetpackTimer > 0
+    ? (pickup.type === "coin" ? 3.7 : 3.2)
+    : (pickup.type === "coin" ? 2.4 : 2.8);
+  const overlapY = relativeY >= minY && relativeY <= maxY;
+
+  return overlapZ && overlapX && overlapY;
+}
+
 function updatePickups(delta) {
   for (let index = pickups.length - 1; index >= 0; index -= 1) {
     const pickup = pickups[index];
-    pickup.z += game.speed * delta;
+    pickup.z += game.speed * (pickup.speedMultiplier ?? 1) * delta;
     pickup.currentY = pickup.baseY + Math.sin(game.time * 4.2 + pickup.bobOffset) * (pickup.type === "coin" ? 0.18 : 0.12);
 
     let magnetTarget = null;
@@ -1429,15 +1601,7 @@ function updatePickups(delta) {
       pickup.mesh.rotation.x += delta * 1.05;
     }
 
-    const collector = players.find((player) => {
-      if (!player.alive) {
-        return false;
-      }
-      const overlapZ = Math.abs(pickup.z - CONFIG.playerZ) < 1.05;
-      const overlapX = Math.abs(pickup.x - player.x) < 0.8;
-      const overlapY = Math.abs(pickup.currentY - (player.y + 1.35)) < (pickup.type === "coin" ? 1.15 : 1.35);
-      return overlapZ && overlapX && overlapY;
-    });
+    const collector = players.find((player) => player.alive && canCollectPickup(player, pickup));
 
     if (collector) {
       applyPickup(collector, pickup);
@@ -1464,7 +1628,11 @@ function syncPlayerVisuals(delta) {
       visuals.figure.rotation.x = THREE.MathUtils.damp(visuals.figure.rotation.x, 0.35, 5, delta);
       visuals.shadow.scale.setScalar(0.84);
       visuals.pack.visible = false;
+      visuals.powerBar.visible = false;
       visuals.magnetRing.visible = false;
+      visuals.lifeOrbs.forEach((orb) => {
+        orb.visible = false;
+      });
       updatePanel(player);
       return;
     }
@@ -1484,6 +1652,10 @@ function syncPlayerVisuals(delta) {
 
     const visibleWhileInvulnerable = player.invulnerableTimer <= 0 || Math.floor(game.time * 16 + player.id) % 2 === 0;
     visuals.figure.visible = visibleWhileInvulnerable;
+    visuals.lifeOrbs.forEach((orb, index) => {
+      orb.visible = index < Math.min(player.lives, visuals.lifeOrbs.length) && visibleWhileInvulnerable;
+      orb.scale.setScalar(1 + Math.sin(game.time * 5.5 + player.id + index * 0.35) * 0.04);
+    });
 
     visuals.leftFlame.scale.y = 0.75 + Math.sin(game.time * 16 + player.id) * 0.18;
     visuals.rightFlame.scale.y = 0.75 + Math.cos(game.time * 16 + player.id) * 0.18;
@@ -1494,6 +1666,15 @@ function syncPlayerVisuals(delta) {
     visuals.magnetRing.visible = player.magnetTimer > 0 && visibleWhileInvulnerable;
     visuals.magnetRing.rotation.z += delta * 2.2;
     visuals.magnetRing.scale.setScalar(1 + Math.sin(game.time * 6 + player.id) * 0.04);
+
+    const displayedPower = getDisplayedPowerState(player);
+    visuals.powerBar.visible = Boolean(displayedPower) && visibleWhileInvulnerable;
+    if (displayedPower) {
+      visuals.powerBarFill.scale.x = Math.max(0.001, displayedPower.ratio);
+      visuals.powerBarFill.position.x = -0.41 * (1 - displayedPower.ratio);
+      visuals.powerBarFill.material.color.setHex(displayedPower.color);
+      visuals.powerBarFill.material.emissive.setHex(displayedPower.color);
+    }
 
     visuals.shadow.material.opacity = player.jetpackTimer > 0 ? 0.08 : 0.18;
     visuals.shadow.scale.set(1.15 - player.y * 0.05, 0.74 - player.y * 0.026, 1);
