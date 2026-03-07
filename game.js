@@ -28,10 +28,10 @@ const CONFIG = {
   baseSpeed: 28,
   maxSpeed: 82,
   acceleration: 0.95,
-  scoreRate: 16,
-  coinScore: 65,
+  scoreRate: 0,
+  coinScore: 1,
   startingLives: 3,
-  scoreStealThreshold: 10000,
+  scoreStealThreshold: 100,
   respawnInvulnerability: 2,
   spawnHazardRange: [22, 34],
   spawnPickupRange: [12, 20],
@@ -540,7 +540,7 @@ function createRunner(profile) {
     emissiveIntensity: 0.8,
   });
   const powerBar = new THREE.Group();
-  powerBar.position.set(0, 2.3, -0.56);
+  powerBar.position.set(0, 2.62, 0.56);
   powerBar.visible = false;
 
   const powerBarTrack = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.1, 0.06), powerBarTrackMaterial));
@@ -550,6 +550,24 @@ function createRunner(profile) {
   powerBarFill.position.z = 0.01;
   powerBar.add(powerBarFill);
   figure.add(powerBar);
+
+  const scoreBarFillMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffd15c,
+    roughness: 0.24,
+    metalness: 0.18,
+    emissive: 0xffd15c,
+    emissiveIntensity: 0.75,
+  });
+  const scoreBar = new THREE.Group();
+  scoreBar.position.set(0, 2.43, 0.56);
+
+  const scoreBarTrack = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.1, 0.06), powerBarTrackMaterial));
+  scoreBar.add(scoreBarTrack);
+
+  const scoreBarFill = setMeshShadows(new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.06, 0.05), scoreBarFillMaterial));
+  scoreBarFill.position.z = 0.01;
+  scoreBar.add(scoreBarFill);
+  figure.add(scoreBar);
 
   const magnetRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.05, 12, 28), materials.magnetTip);
   magnetRing.rotation.x = Math.PI / 2;
@@ -574,6 +592,8 @@ function createRunner(profile) {
     pack,
     powerBar,
     powerBarFill,
+    scoreBar,
+    scoreBarFill,
     leftFlame,
     rightFlame,
     magnetRing,
@@ -1036,6 +1056,17 @@ function getDisplayedPowerState(player) {
   return null;
 }
 
+function getLifeStealState(player) {
+  if (players.length < 2) {
+    return null;
+  }
+
+  return {
+    ratio: THREE.MathUtils.clamp(player.score / CONFIG.scoreStealThreshold, 0, 1),
+    color: 0xffd15c,
+  };
+}
+
 function updatePanel(player) {
   if (!player.panel) {
     return;
@@ -1043,7 +1074,9 @@ function updatePanel(player) {
 
   updateLivesDisplay(player);
   player.panel.querySelector(".score-value").textContent = String(Math.floor(player.score));
-  player.panel.querySelector(".score-meta").textContent = `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`;
+  player.panel.querySelector(".score-meta").textContent = players.length > 1
+    ? `Distance ${Math.floor(player.distance)}m | Coins ${player.coins} | Life ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`
+    : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`;
 
   const status = player.panel.querySelector(".score-status");
   if (!player.alive) {
@@ -1082,12 +1115,12 @@ function updatePanel(player) {
 
 function updateHudCopy() {
   if (game.isTouchMode) {
-    modeLabel.textContent = "Outdoor solo run. Three hearts, quick respawns, and easier train roofs.";
+    modeLabel.textContent = "Outdoor solo run. Coins are your only points, with quick respawns and easier train roofs.";
     controlHint.textContent = "Swipe left or right to switch tracks. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height. Some trains arrive with ramps or drift more slowly.";
     touchPrompt.textContent = "Swipe left or right to change lanes. Swipe up to jump, swipe down to slide, and while jetpacking swipe up or down to change height.";
     touchPrompt.classList.remove("hidden");
   } else {
-    modeLabel.textContent = "Shared duel. Three hearts each, 10,000 points steals one heart, and train roofs are easier to ride.";
+    modeLabel.textContent = "Shared duel. Coins are points, and every 100 points steals one heart from the other runner.";
     controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height, use ramps onto trains, and just step off roofs to fall back down.";
     touchPrompt.classList.add("hidden");
   }
@@ -1386,7 +1419,6 @@ function advancePlayers(delta) {
 
     const distanceGain = game.speed * delta * 0.94;
     player.distance += distanceGain;
-    addScore(player, distanceGain * CONFIG.scoreRate);
     player.runPhase += delta * (6.1 + game.speed * 0.09);
   });
 }
@@ -1629,6 +1661,7 @@ function syncPlayerVisuals(delta) {
       visuals.shadow.scale.setScalar(0.84);
       visuals.pack.visible = false;
       visuals.powerBar.visible = false;
+      visuals.scoreBar.visible = false;
       visuals.magnetRing.visible = false;
       visuals.lifeOrbs.forEach((orb) => {
         orb.visible = false;
@@ -1674,6 +1707,15 @@ function syncPlayerVisuals(delta) {
       visuals.powerBarFill.position.x = -0.41 * (1 - displayedPower.ratio);
       visuals.powerBarFill.material.color.setHex(displayedPower.color);
       visuals.powerBarFill.material.emissive.setHex(displayedPower.color);
+    }
+
+    const lifeStealState = getLifeStealState(player);
+    visuals.scoreBar.visible = Boolean(lifeStealState) && visibleWhileInvulnerable;
+    if (lifeStealState) {
+      visuals.scoreBarFill.scale.x = Math.max(0.001, lifeStealState.ratio);
+      visuals.scoreBarFill.position.x = -0.41 * (1 - lifeStealState.ratio);
+      visuals.scoreBarFill.material.color.setHex(lifeStealState.color);
+      visuals.scoreBarFill.material.emissive.setHex(lifeStealState.color);
     }
 
     visuals.shadow.material.opacity = player.jetpackTimer > 0 ? 0.08 : 0.18;
@@ -1758,6 +1800,14 @@ window.addEventListener("resize", handleResize);
 
 restartInline.addEventListener("click", resetGame);
 restartOverlay.addEventListener("click", resetGame);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(new URL("./sw.js", import.meta.url)).catch((error) => {
+      console.warn("Service worker registration failed.", error);
+    });
+  });
+}
 
 registerTouchControls();
 resetGame();

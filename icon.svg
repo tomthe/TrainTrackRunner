@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Train Track Runner icon</title>
+  <desc id="desc">A stylized train front over bright rails on a dark blue background.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#173552"/>
+      <stop offset="100%" stop-color="#03070d"/>
+    </linearGradient>
+    <linearGradient id="train" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ff9a54"/>
+      <stop offset="100%" stop-color="#d95d29"/>
+    </linearGradient>
+    <linearGradient id="rails" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#5ae6ff"/>
+      <stop offset="100%" stop-color="#ffd15c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="126" r="78" fill="#ffffff" opacity="0.07"/>
+  <path d="M132 424 228 240h56l-96 184z" fill="url(#rails)" opacity="0.95"/>
+  <path d="M284 240h56l96 184h-56z" fill="url(#rails)" opacity="0.95"/>
+  <path d="M186 402h140l46-156c8-29-13-58-43-58h-146c-30 0-51 29-43 58z" fill="url(#train)"/>
+  <rect x="182" y="208" width="148" height="82" rx="24" fill="#dcecff"/>
+  <rect x="202" y="226" width="108" height="44" rx="16" fill="#5a8bb8"/>
+  <rect x="206" y="308" width="100" height="16" rx="8" fill="#ffd15c"/>
+  <circle cx="210" cy="360" r="18" fill="#fff3cf"/>
+  <circle cx="302" cy="360" r="18" fill="#fff3cf"/>
+  <rect x="158" y="420" width="196" height="18" rx="9" fill="#ffffff" opacity="0.16"/>
+</svg>
