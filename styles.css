@@ -147,6 +147,27 @@ body {
   letter-spacing: -0.03em;
 }
 
+.lives-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+  min-height: 2rem;
+  margin: 0.1rem 0 0.55rem;
+  color: var(--accent, var(--orange));
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1;
+}
+
+.heart {
+  display: inline-block;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.18));
+}
+
+.heart.empty {
+  color: rgba(255, 255, 255, 0.14);
+  filter: none;
+}
+
 .score-value {
   margin: 0.1rem 0;
   font-size: clamp(1.7rem, 3vw, 2.35rem);

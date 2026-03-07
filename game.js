@@ -23,13 +23,16 @@ const CONFIG = {
   spawnZ: -70,
   cleanupZ: 40,
   gravity: 42,
-  jumpVelocity: 16.8,
+  jumpVelocity: 17.8,
   slideDuration: 0.72,
   baseSpeed: 28,
   maxSpeed: 62,
   acceleration: 0.95,
   scoreRate: 16,
   coinScore: 65,
+  startingLives: 3,
+  scoreStealThreshold: 10000,
+  respawnInvulnerability: 2,
   spawnHazardRange: [22, 34],
   spawnPickupRange: [12, 20],
   swipeThreshold: 32,
@@ -39,11 +42,16 @@ const CONFIG = {
   trainCars: [2, 4],
   trainWidth: 2.45,
   trainRoofY: 3.08,
+  trainLandingAssistHeight: 1.35,
   playerCollisionRadius: 0.78,
   bumpRadius: 1.16,
   bumpForce: 8.6,
   jetpackDuration: 6.2,
   jetpackHeight: 7.8,
+  jetpackMinHeight: 0.9,
+  jetpackMaxHeight: 10.8,
+  jetpackVerticalSpeed: 12,
+  jetpackTouchStep: 1.55,
   magnetDuration: 8.5,
   magnetRange: 4.6,
 };
@@ -536,13 +544,18 @@ function createPlayer(playerIndex, startLane) {
     lateralVelocity: 0,
     grounded: true,
     onTrainId: null,
+    lastTrainId: null,
+    dropThroughTrainId: null,
     slideTimer: 0,
     score: 0,
     distance: 0,
     coins: 0,
+    lives: CONFIG.startingLives,
     runPhase: 0,
     alive: true,
+    invulnerableTimer: 0,
     jetpackTimer: 0,
+    jetpackTargetY: CONFIG.jetpackHeight,
     magnetTimer: 0,
     visuals,
     panel: null,
@@ -765,6 +778,7 @@ function createScorePanel(player) {
   panel.style.setProperty("--accent", player.accent);
   panel.innerHTML = `
     <strong>${player.name}</strong>
+    <div class="lives-display" aria-label="${CONFIG.startingLives} lives"></div>
     <p class="score-value">0</p>
     <p class="score-meta">Distance 0m | Coins 0</p>
     <span class="score-status">running</span>
@@ -779,18 +793,140 @@ function refreshPanels() {
   players.forEach((player) => createScorePanel(player));
 }
 
+function updateLivesDisplay(player) {
+  if (!player.panel) {
+    return;
+  }
+
+  const livesDisplay = player.panel.querySelector(".lives-display");
+  if (!livesDisplay) {
+    return;
+  }
+
+  const maxLivesShown = Math.max(CONFIG.startingLives, ...players.map((entry) => entry.lives));
+  const filledHearts = Array.from(
+    { length: player.lives },
+    () => '<span class="heart full" aria-hidden="true">&#10084;</span>'
+  ).join("");
+  const emptyHearts = Array.from(
+    { length: Math.max(0, maxLivesShown - player.lives) },
+    () => '<span class="heart empty" aria-hidden="true">&#10084;</span>'
+  ).join("");
+
+  livesDisplay.innerHTML = filledHearts + emptyHearts;
+  livesDisplay.setAttribute("aria-label", `${player.lives} ${player.lives === 1 ? "life" : "lives"}`);
+}
+
+function getRespawnLane(player) {
+  return chooseStartingLanes()[player.id] ?? player.targetLane ?? player.lane ?? Math.floor(game.laneCount / 2);
+}
+
+function clearPlayerEffects(player) {
+  player.slideTimer = 0;
+  player.jetpackTimer = 0;
+  player.jetpackTargetY = CONFIG.jetpackHeight;
+  player.magnetTimer = 0;
+  player.verticalVelocity = 0;
+  player.lateralVelocity = 0;
+  player.onTrainId = null;
+  player.lastTrainId = null;
+  player.dropThroughTrainId = null;
+}
+
+function respawnPlayer(player) {
+  const respawnLane = getRespawnLane(player);
+  clearPlayerEffects(player);
+  player.alive = true;
+  player.lane = respawnLane;
+  player.targetLane = respawnLane;
+  player.x = laneX(respawnLane);
+  player.y = 0;
+  player.grounded = true;
+  player.invulnerableTimer = CONFIG.respawnInvulnerability;
+}
+
+function defeatPlayer(player) {
+  clearPlayerEffects(player);
+  player.alive = false;
+  player.lives = 0;
+  player.grounded = false;
+  player.invulnerableTimer = 0;
+}
+
+function getOpponent(player) {
+  return players.find((entry) => entry.id !== player.id && entry.lives > 0);
+}
+
+function stealLifeForScore(player) {
+  const opponent = getOpponent(player);
+  if (!opponent) {
+    return;
+  }
+
+  player.score = 0;
+  player.lives += 1;
+  opponent.lives = Math.max(0, opponent.lives - 1);
+
+  if (opponent.lives === 0) {
+    defeatPlayer(opponent);
+    finishRun(opponent);
+  }
+}
+
+function addScore(player, amount) {
+  if (!player.alive || amount <= 0 || !Number.isFinite(amount)) {
+    return;
+  }
+
+  player.score += amount;
+  if (players.length > 1 && game.running && player.score >= CONFIG.scoreStealThreshold) {
+    stealLifeForScore(player);
+  }
+}
+
+function nudgeJetpackHeight(player, direction, amount = CONFIG.jetpackTouchStep) {
+  if (!player || !player.alive || player.jetpackTimer <= 0 || direction === 0) {
+    return;
+  }
+
+  player.jetpackTargetY = THREE.MathUtils.clamp(
+    player.jetpackTargetY + direction * amount,
+    CONFIG.jetpackMinHeight,
+    CONFIG.jetpackMaxHeight
+  );
+}
+
+function getJetpackInput(player) {
+  if (!player || !player.alive || player.jetpackTimer <= 0 || game.isTouchMode) {
+    return 0;
+  }
+
+  if (player.id === 0) {
+    return Number(pressed.has("KeyW")) - Number(pressed.has("KeyS"));
+  }
+
+  return Number(pressed.has("ArrowUp")) - Number(pressed.has("ArrowDown"));
+}
+
 function updatePanel(player) {
   if (!player.panel) {
     return;
   }
 
-  player.panel.querySelector(".score-value").textContent = String(player.score);
+  updateLivesDisplay(player);
+  player.panel.querySelector(".score-value").textContent = String(Math.floor(player.score));
   player.panel.querySelector(".score-meta").textContent = `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`;
 
   const status = player.panel.querySelector(".score-status");
   if (!player.alive) {
-    status.textContent = "crashed";
+    status.textContent = "out of hearts";
     status.classList.add("out");
+    return;
+  }
+
+  if (player.invulnerableTimer > 0) {
+    status.textContent = `shield ${player.invulnerableTimer.toFixed(1)}s`;
+    status.classList.remove("out");
     return;
   }
 
@@ -818,12 +954,13 @@ function updatePanel(player) {
 
 function updateHudCopy() {
   if (game.isTouchMode) {
-    modeLabel.textContent = "Outdoor solo run. Three open tracks, long trains, and rare power-ups ahead.";
-    controlHint.textContent = "Swipe left or right to switch tracks, up to jump, down to slide. Watch for Jet-Pack and Magnet pickups.";
+    modeLabel.textContent = "Outdoor solo run. Three hearts, quick respawns, and easier train roofs.";
+    controlHint.textContent = "Swipe left or right to switch tracks. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
+    touchPrompt.textContent = "Swipe left or right to change lanes. Swipe up to jump, swipe down to slide, and while jetpacking swipe up or down to change height.";
     touchPrompt.classList.remove("hidden");
   } else {
-    modeLabel.textContent = "Shared four-track duel. Both runners fight over the same rails and can shove each other wide.";
-    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Jump onto train roofs, slide under gates, and grab Jet-Pack or Magnet power-ups.";
+    modeLabel.textContent = "Shared duel. Three hearts each, 10,000 points steals one heart, and train roofs are easier to ride.";
+    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height, and just step off train roofs to fall back down.";
     touchPrompt.classList.add("hidden");
   }
 }
@@ -946,10 +1083,18 @@ function handleDesktopKey(event) {
     shiftLane(players[0], 1);
   }
   if (event.code === "KeyW") {
-    triggerJump(players[0]);
+    if (players[0]?.jetpackTimer > 0) {
+      nudgeJetpackHeight(players[0], 1, CONFIG.jetpackTouchStep * 0.7);
+    } else {
+      triggerJump(players[0]);
+    }
   }
   if (event.code === "KeyS") {
-    triggerSlide(players[0]);
+    if (players[0]?.jetpackTimer > 0) {
+      nudgeJetpackHeight(players[0], -1, CONFIG.jetpackTouchStep * 0.7);
+    } else {
+      triggerSlide(players[0]);
+    }
   }
 
   if (!game.isTouchMode && players[1]) {
@@ -960,10 +1105,18 @@ function handleDesktopKey(event) {
       shiftLane(players[1], 1);
     }
     if (event.code === "ArrowUp") {
-      triggerJump(players[1]);
+      if (players[1].jetpackTimer > 0) {
+        nudgeJetpackHeight(players[1], 1, CONFIG.jetpackTouchStep * 0.7);
+      } else {
+        triggerJump(players[1]);
+      }
     }
     if (event.code === "ArrowDown") {
-      triggerSlide(players[1]);
+      if (players[1].jetpackTimer > 0) {
+        nudgeJetpackHeight(players[1], -1, CONFIG.jetpackTouchStep * 0.7);
+      } else {
+        triggerSlide(players[1]);
+      }
     }
   }
 }
@@ -1001,6 +1154,8 @@ function registerTouchControls() {
 
       if (absX > absY) {
         shiftLane(player, dx < 0 ? -1 : 1);
+      } else if (player.jetpackTimer > 0) {
+        nudgeJetpackHeight(player, dy < 0 ? 1 : -1);
       } else if (dy < 0) {
         triggerJump(player);
       } else {
@@ -1065,6 +1220,9 @@ function advancePlayers(delta) {
     if (player.slideTimer > 0) {
       player.slideTimer = Math.max(0, player.slideTimer - delta);
     }
+    if (player.invulnerableTimer > 0) {
+      player.invulnerableTimer = Math.max(0, player.invulnerableTimer - delta);
+    }
     if (player.jetpackTimer > 0) {
       player.jetpackTimer = Math.max(0, player.jetpackTimer - delta);
     }
@@ -1078,20 +1236,29 @@ function advancePlayers(delta) {
     player.x = THREE.MathUtils.clamp(player.x, laneMin, laneMax);
 
     if (player.jetpackTimer > 0) {
-      player.y = THREE.MathUtils.damp(player.y, CONFIG.jetpackHeight, 7.5, delta);
+      const jetpackInput = getJetpackInput(player);
+      if (jetpackInput !== 0) {
+        nudgeJetpackHeight(player, jetpackInput, CONFIG.jetpackVerticalSpeed * delta);
+      }
+      player.y = THREE.MathUtils.damp(player.y, player.jetpackTargetY, 8.5, delta);
       player.verticalVelocity = 0;
       player.grounded = false;
       player.onTrainId = null;
+      player.lastTrainId = null;
+      player.dropThroughTrainId = null;
       player.slideTimer = 0;
     } else {
+      player.lastTrainId = player.onTrainId;
       player.verticalVelocity -= CONFIG.gravity * delta;
       player.y += player.verticalVelocity * delta;
       player.grounded = false;
       player.onTrainId = null;
+      player.jetpackTargetY = CONFIG.jetpackHeight;
     }
 
-    player.distance += game.speed * delta * 0.94;
-    player.score = Math.floor(player.distance * CONFIG.scoreRate + player.coins * CONFIG.coinScore);
+    const distanceGain = game.speed * delta * 0.94;
+    player.distance += distanceGain;
+    addScore(player, distanceGain * CONFIG.scoreRate);
     player.runPhase += delta * (6.1 + game.speed * 0.09);
   });
 }
@@ -1137,28 +1304,26 @@ function findSupportingTrain(player) {
       return false;
     }
     const withinZ = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength - 0.45;
-    const withinX = Math.abs(obstacle.x - player.x) < obstacle.width * 0.48;
-    const landingWindow = player.y <= obstacle.roofY + 0.85 && player.verticalVelocity <= 2;
+    const withinX = Math.abs(obstacle.x - player.x) < obstacle.width * 0.58;
+    const landingWindow = player.y <= obstacle.roofY + CONFIG.trainLandingAssistHeight && player.verticalVelocity <= 5.5;
     return withinZ && withinX && landingWindow;
   });
 }
 
-function markPlayerOut(player) {
-  if (!player.alive) {
+function loseLife(player) {
+  if (!player.alive || player.invulnerableTimer > 0) {
     return;
   }
 
-  player.alive = false;
-  player.slideTimer = 0;
-  player.jetpackTimer = 0;
-  player.magnetTimer = 0;
-  player.verticalVelocity = 0;
-  player.onTrainId = null;
+  player.lives = Math.max(0, player.lives - 1);
 
-  const survivors = players.filter((entry) => entry.alive);
-  if (survivors.length === 0 || (!game.isTouchMode && players.length > 1 && survivors.length === 1)) {
-    finishRun();
+  if (player.lives === 0) {
+    defeatPlayer(player);
+    finishRun(player);
+    return;
   }
+
+  respawnPlayer(player);
 }
 
 function resolveSupportsAndHazards() {
@@ -1174,14 +1339,18 @@ function resolveSupportsAndHazards() {
         player.verticalVelocity = 0;
         player.grounded = true;
         player.onTrainId = train.id;
+        player.dropThroughTrainId = null;
+      } else if (player.lastTrainId && player.y > 0.05) {
+        player.dropThroughTrainId = player.lastTrainId;
       } else if (player.y <= 0) {
         player.y = 0;
         player.verticalVelocity = 0;
         player.grounded = true;
+        player.dropThroughTrainId = null;
       }
     }
 
-    if (player.jetpackTimer > 0) {
+    if (player.jetpackTimer > 0 || player.invulnerableTimer > 0) {
       return;
     }
 
@@ -1193,23 +1362,23 @@ function resolveSupportsAndHazards() {
 
       if (obstacle.type === "train") {
         const withinTrain = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength + 0.45;
-        const safelyAbove = player.y >= obstacle.roofY - 0.02 || player.onTrainId === obstacle.id;
+        const safelyAbove = player.y >= obstacle.roofY - 0.18 || player.onTrainId === obstacle.id || player.dropThroughTrainId === obstacle.id;
         if (withinTrain && !safelyAbove) {
-          markPlayerOut(player);
+          loseLife(player);
         }
       }
 
       if (obstacle.type === "barrier") {
         const withinBarrier = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength + 0.58;
         if (withinBarrier && player.y < 1.18) {
-          markPlayerOut(player);
+          loseLife(player);
         }
       }
 
       if (obstacle.type === "gate") {
         const withinGate = Math.abs(obstacle.z - CONFIG.playerZ) < obstacle.halfLength + 0.48;
         if (withinGate && player.slideTimer <= 0 && player.y < 1.42) {
-          markPlayerOut(player);
+          loseLife(player);
         }
       }
 
@@ -1223,7 +1392,7 @@ function resolveSupportsAndHazards() {
 function applyPickup(player, pickup) {
   if (pickup.type === "coin") {
     player.coins += 1;
-    player.score += CONFIG.coinScore;
+    addScore(player, CONFIG.coinScore);
     return;
   }
   if (pickup.type === "magnet") {
@@ -1231,6 +1400,7 @@ function applyPickup(player, pickup) {
     return;
   }
   player.jetpackTimer = Math.max(player.jetpackTimer, CONFIG.jetpackDuration);
+  player.jetpackTargetY = THREE.MathUtils.clamp(Math.max(player.y + 1.2, CONFIG.jetpackHeight), CONFIG.jetpackMinHeight, CONFIG.jetpackMaxHeight);
 }
 
 function updatePickups(delta) {
@@ -1287,6 +1457,7 @@ function syncPlayerVisuals(delta) {
   players.forEach((player) => {
     const visuals = player.visuals;
     if (!player.alive) {
+      visuals.figure.visible = true;
       visuals.root.position.x = player.x;
       visuals.root.position.y = Math.max(player.y, -0.35);
       visuals.figure.rotation.z = THREE.MathUtils.damp(visuals.figure.rotation.z, 1.3, 5, delta);
@@ -1311,13 +1482,16 @@ function syncPlayerVisuals(delta) {
     visuals.figure.scale.y = THREE.MathUtils.damp(visuals.figure.scale.y, player.slideTimer > 0 ? 0.7 : 1, 12, delta);
     visuals.root.position.set(player.x, player.y, CONFIG.playerZ);
 
-    visuals.pack.visible = player.jetpackTimer > 0;
+    const visibleWhileInvulnerable = player.invulnerableTimer <= 0 || Math.floor(game.time * 16 + player.id) % 2 === 0;
+    visuals.figure.visible = visibleWhileInvulnerable;
+
     visuals.leftFlame.scale.y = 0.75 + Math.sin(game.time * 16 + player.id) * 0.18;
     visuals.rightFlame.scale.y = 0.75 + Math.cos(game.time * 16 + player.id) * 0.18;
     visuals.leftFlame.material.opacity = 0.62 + Math.sin(game.time * 14 + player.id) * 0.12;
     visuals.rightFlame.material.opacity = 0.62 + Math.cos(game.time * 14 + player.id) * 0.12;
 
-    visuals.magnetRing.visible = player.magnetTimer > 0;
+    visuals.pack.visible = player.jetpackTimer > 0 && visibleWhileInvulnerable;
+    visuals.magnetRing.visible = player.magnetTimer > 0 && visibleWhileInvulnerable;
     visuals.magnetRing.rotation.z += delta * 2.2;
     visuals.magnetRing.scale.setScalar(1 + Math.sin(game.time * 6 + player.id) * 0.04);
 
@@ -1327,22 +1501,21 @@ function syncPlayerVisuals(delta) {
   });
 }
 
-function finishRun() {
+function finishRun(loser = null) {
   game.running = false;
   overlay.classList.remove("hidden");
 
   if (players.length === 1) {
-    overlayTitle.textContent = `Run score: ${players[0].score}`;
-    overlaySummary.textContent = `You covered ${Math.floor(players[0].distance)} meters, collected ${players[0].coins} coins, and cleared the outdoor line.`;
+    overlayTitle.textContent = `Run score: ${Math.floor(players[0].score)}`;
+    overlaySummary.textContent = `You ran out of hearts after ${Math.floor(players[0].distance)} meters and ${players[0].coins} coins.`;
     return;
   }
 
-  const [first, second] = [...players].sort((a, b) => b.score - a.score);
-  const tied = first.score === second.score;
-  overlayTitle.textContent = tied ? "Dead heat" : `${first.name} wins`;
-  overlaySummary.textContent = tied
-    ? `Both runners finished on ${first.score} points after fighting across the same four tracks.`
-    : `${first.name} finished on ${first.score} points. ${second.name} closed on ${second.score}.`;
+  const defeated = loser ?? players.find((player) => player.lives <= 0 || !player.alive) ?? players[1];
+  const winner = players.find((player) => player !== defeated) ?? players[0];
+
+  overlayTitle.textContent = `${winner.name} wins`;
+  overlaySummary.textContent = `${defeated.name} ran out of hearts. ${winner.name} finished with ${winner.lives} ${winner.lives === 1 ? "life" : "lives"} and ${Math.floor(winner.score)} points.`;
 }
 
 function updateCamera(delta) {
