@@ -20,21 +20,43 @@
     <canvas id="gameCanvas" aria-label="Train Track Runner game canvas"></canvas>
 
     <header class="hud-bar">
-      <div class="brand-panel">
-        <p class="eyebrow">dual-run endless sprint</p>
-        <h1>Train Track Runner</h1>
-        <p id="modeLabel" class="mode-copy"></p>
+      <div id="brandPanel" class="brand-panel collapsible-panel">
+        <div class="panel-actions">
+          <span class="panel-tag">Info</span>
+          <button id="toggleBrandPanel" class="panel-toggle" type="button" aria-controls="brandPanelBody" aria-expanded="true">Hide</button>
+        </div>
+        <div id="brandPanelBody" class="panel-body">
+          <p class="eyebrow">dual-run endless sprint</p>
+          <h1>Train Track Runner</h1>
+          <p id="modeLabel" class="mode-copy"></p>
+        </div>
       </div>
 
       <div id="scoreboard" class="scoreboard" aria-live="polite"></div>
     </header>
 
     <footer class="footer-bar">
-      <p id="controlHint" class="control-hint"></p>
+      <div id="controlPanel" class="control-panel collapsible-panel">
+        <div class="panel-actions">
+          <span class="panel-tag">Controls</span>
+          <button id="toggleControlPanel" class="panel-toggle" type="button" aria-controls="controlPanelBody" aria-expanded="true">Hide</button>
+        </div>
+        <div id="controlPanelBody" class="panel-body">
+          <p id="controlHint" class="control-hint"></p>
+        </div>
+      </div>
       <button id="restartInline" class="ghost-button" type="button">Restart</button>
     </footer>
 
-    <div id="touchPrompt" class="touch-prompt hidden">Swipe left or right to change lanes. Swipe up to jump. Swipe down to slide.</div>
+    <div id="touchPrompt" class="touch-prompt hidden collapsible-panel">
+      <div class="panel-actions">
+        <span class="panel-tag">Swipe Help</span>
+        <button id="toggleTouchPrompt" class="panel-toggle" type="button" aria-controls="touchPromptBody" aria-expanded="true">Hide</button>
+      </div>
+      <div id="touchPromptBody" class="panel-body">
+        <p id="touchPromptText" class="touch-prompt-copy"></p>
+      </div>
+    </div>
 
     <section id="overlay" class="overlay hidden" aria-live="polite">
       <div class="overlay-card">

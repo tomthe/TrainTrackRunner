@@ -2,14 +2,20 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.m
 
 const canvas = document.getElementById("gameCanvas");
 const scoreboard = document.getElementById("scoreboard");
+const brandPanel = document.getElementById("brandPanel");
 const modeLabel = document.getElementById("modeLabel");
+const toggleBrandPanel = document.getElementById("toggleBrandPanel");
+const controlPanel = document.getElementById("controlPanel");
 const controlHint = document.getElementById("controlHint");
+const toggleControlPanel = document.getElementById("toggleControlPanel");
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlaySummary = document.getElementById("overlaySummary");
 const restartInline = document.getElementById("restartInline");
 const restartOverlay = document.getElementById("restartOverlay");
 const touchPrompt = document.getElementById("touchPrompt");
+const touchPromptText = document.getElementById("touchPromptText");
+const toggleTouchPrompt = document.getElementById("toggleTouchPrompt");
 
 const CONFIG = {
   desktopLaneCount: 5,
@@ -206,6 +212,28 @@ const game = {
 let obstacleId = 0;
 let lastFrame = 0;
 let touchState = null;
+let touchPromptTimer = 0;
+
+const HUD_PANELS = {
+  brand: {
+    element: brandPanel,
+    toggle: toggleBrandPanel,
+    expandLabel: "Show game info",
+    collapseLabel: "Hide game info",
+  },
+  controls: {
+    element: controlPanel,
+    toggle: toggleControlPanel,
+    expandLabel: "Show controls",
+    collapseLabel: "Hide controls",
+  },
+  touch: {
+    element: touchPrompt,
+    toggle: toggleTouchPrompt,
+    expandLabel: "Show swipe help",
+    collapseLabel: "Hide swipe help",
+  },
+};
 
 function detectTouchMode() {
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
@@ -267,6 +295,63 @@ function configureSky() {
 
 function choose(values) {
   return values[Math.floor(Math.random() * values.length)];
+}
+
+function isCompactHud() {
+  return window.innerWidth <= 640;
+}
+
+function isCompactTouchViewport() {
+  return window.innerWidth <= 640 || window.innerHeight <= 720;
+}
+
+function clearTouchPromptTimer() {
+  if (!touchPromptTimer) {
+    return;
+  }
+
+  window.clearTimeout(touchPromptTimer);
+  touchPromptTimer = 0;
+}
+
+function setPanelCollapsed(panelKey, collapsed) {
+  const panel = HUD_PANELS[panelKey];
+  if (!panel) {
+    return;
+  }
+
+  panel.element.classList.toggle("collapsed", collapsed);
+  panel.toggle.textContent = collapsed ? "Show" : "Hide";
+  panel.toggle.setAttribute("aria-expanded", String(!collapsed));
+  panel.toggle.setAttribute("aria-label", collapsed ? panel.expandLabel : panel.collapseLabel);
+}
+
+function scheduleTouchPromptCollapse() {
+  clearTouchPromptTimer();
+  if (!game.isTouchMode || !game.running || touchPrompt.classList.contains("hidden") || touchPrompt.classList.contains("collapsed")) {
+    return;
+  }
+
+  touchPromptTimer = window.setTimeout(() => {
+    setPanelCollapsed("touch", true);
+    touchPromptTimer = 0;
+  }, 4200);
+}
+
+function syncInstructionPanels() {
+  setPanelCollapsed("brand", true);
+  setPanelCollapsed("controls", true);
+
+  if (!game.isTouchMode) {
+    clearTouchPromptTimer();
+    touchPrompt.classList.add("hidden");
+    setPanelCollapsed("touch", true);
+    return;
+  }
+
+  touchPrompt.classList.remove("hidden");
+  setPanelCollapsed("touch", isCompactTouchViewport());
+  scheduleTouchPromptCollapse();
 }
 
 function createTrackSegment(zPosition) {
@@ -1072,15 +1157,21 @@ function updatePanel(player) {
     return;
   }
 
+  const compactHud = isCompactHud();
+
   updateLivesDisplay(player);
   player.panel.querySelector(".score-value").textContent = String(Math.floor(player.score));
   player.panel.querySelector(".score-meta").textContent = players.length > 1
-    ? `Distance ${Math.floor(player.distance)}m | Coins ${player.coins} | Life ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`
-    : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`;
+    ? (compactHud
+        ? `${Math.floor(player.distance)}m | ${player.coins}c | ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`
+        : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins} | Life ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`)
+    : (compactHud
+        ? `${Math.floor(player.distance)}m | ${player.coins}c`
+        : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`);
 
   const status = player.panel.querySelector(".score-status");
   if (!player.alive) {
-    status.textContent = "out of hearts";
+    status.textContent = compactHud ? "out" : "out of hearts";
     status.classList.add("out");
     return;
   }
@@ -1104,26 +1195,27 @@ function updatePanel(player) {
   } else if (player.slideTimer > 0) {
     status.textContent = "sliding";
   } else if (player.onTrainId) {
-    status.textContent = "riding train";
+    status.textContent = compactHud ? "train" : "riding train";
   } else if (player.grounded) {
-    status.textContent = "running";
+    status.textContent = compactHud ? "run" : "running";
   } else {
-    status.textContent = "airborne";
+    status.textContent = compactHud ? "air" : "airborne";
   }
   status.classList.remove("out");
 }
 
 function updateHudCopy() {
   if (game.isTouchMode) {
-    modeLabel.textContent = "Outdoor solo run. Coins are your only points, with quick respawns and easier train roofs.";
-    controlHint.textContent = "Swipe left or right to switch tracks. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height. Some trains arrive with ramps or drift more slowly.";
-    touchPrompt.textContent = "Swipe left or right to change lanes. Swipe up to jump, swipe down to slide, and while jetpacking swipe up or down to change height.";
-    touchPrompt.classList.remove("hidden");
+    modeLabel.textContent = "Solo run. Coins are your score, respawns are quick, and train roofs are more forgiving.";
+    controlHint.textContent = "Swipe left or right to switch lanes. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
+    touchPromptText.textContent = "Swipe left or right to change lanes. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
   } else {
-    modeLabel.textContent = "Shared duel. Coins are points, and every 100 points steals one heart from the other runner.";
-    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height, use ramps onto trains, and just step off roofs to fall back down.";
-    touchPrompt.classList.add("hidden");
+    modeLabel.textContent = "Shared duel. Every 100 points steals one heart from the other runner.";
+    controlHint.textContent = "Player 1: W A S D. Player 2: arrow keys. Hold up or down while jetpacking to change height, and use ramps to reach train roofs.";
+    touchPromptText.textContent = "";
   }
+
+  syncInstructionPanels();
 }
 
 function chooseStartingLanes() {
@@ -1185,6 +1277,7 @@ function resetGame() {
   game.nextPickupDistance = randomBetween(CONFIG.spawnPickupRange[0] * 0.6, CONFIG.spawnPickupRange[1] * 0.8);
 
   overlay.classList.add("hidden");
+  clearTouchPromptTimer();
   resetWorldDecor();
   clearGameplayObjects();
   resetPlayers();
@@ -1321,6 +1414,11 @@ function registerTouchControls() {
         triggerJump(player);
       } else {
         triggerSlide(player);
+      }
+
+      if (!touchPrompt.classList.contains("collapsed")) {
+        clearTouchPromptTimer();
+        setPanelCollapsed("touch", true);
       }
     }
     touchState = null;
@@ -1765,6 +1863,13 @@ function handleResize() {
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+
+  if (game.isTouchMode && isCompactTouchViewport() && !touchPrompt.classList.contains("hidden")) {
+    clearTouchPromptTimer();
+    setPanelCollapsed("touch", true);
+  }
+
+  players.forEach((player) => updatePanel(player));
 }
 
 function animate(timestamp) {
@@ -1797,6 +1902,19 @@ window.addEventListener("keydown", handleDesktopKey);
 window.addEventListener("keyup", handleKeyUp);
 window.addEventListener("blur", () => pressed.clear());
 window.addEventListener("resize", handleResize);
+
+toggleBrandPanel.addEventListener("click", () => {
+  setPanelCollapsed("brand", !brandPanel.classList.contains("collapsed"));
+});
+
+toggleControlPanel.addEventListener("click", () => {
+  setPanelCollapsed("controls", !controlPanel.classList.contains("collapsed"));
+});
+
+toggleTouchPrompt.addEventListener("click", () => {
+  clearTouchPromptTimer();
+  setPanelCollapsed("touch", !touchPrompt.classList.contains("collapsed"));
+});
 
 restartInline.addEventListener("click", resetGame);
 restartOverlay.addEventListener("click", resetGame);
