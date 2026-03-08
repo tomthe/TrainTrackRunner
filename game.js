@@ -5,17 +5,12 @@ const scoreboard = document.getElementById("scoreboard");
 const brandPanel = document.getElementById("brandPanel");
 const modeLabel = document.getElementById("modeLabel");
 const toggleBrandPanel = document.getElementById("toggleBrandPanel");
-const controlPanel = document.getElementById("controlPanel");
 const controlHint = document.getElementById("controlHint");
-const toggleControlPanel = document.getElementById("toggleControlPanel");
 const overlay = document.getElementById("overlay");
 const overlayTitle = document.getElementById("overlayTitle");
 const overlaySummary = document.getElementById("overlaySummary");
 const restartInline = document.getElementById("restartInline");
 const restartOverlay = document.getElementById("restartOverlay");
-const touchPrompt = document.getElementById("touchPrompt");
-const touchPromptText = document.getElementById("touchPromptText");
-const toggleTouchPrompt = document.getElementById("toggleTouchPrompt");
 
 const CONFIG = {
   desktopLaneCount: 5,
@@ -212,26 +207,16 @@ const game = {
 let obstacleId = 0;
 let lastFrame = 0;
 let touchState = null;
-let touchPromptTimer = 0;
+let hudCollapseTimer = 0;
 
 const HUD_PANELS = {
   brand: {
     element: brandPanel,
     toggle: toggleBrandPanel,
+    collapsedText: "Info",
+    expandedText: "Close",
     expandLabel: "Show game info",
     collapseLabel: "Hide game info",
-  },
-  controls: {
-    element: controlPanel,
-    toggle: toggleControlPanel,
-    expandLabel: "Show controls",
-    collapseLabel: "Hide controls",
-  },
-  touch: {
-    element: touchPrompt,
-    toggle: toggleTouchPrompt,
-    expandLabel: "Show swipe help",
-    collapseLabel: "Hide swipe help",
   },
 };
 
@@ -298,20 +283,27 @@ function choose(values) {
 }
 
 function isCompactHud() {
-  return window.innerWidth <= 640;
+  return window.innerWidth <= 520 || window.innerHeight <= 720;
 }
 
-function isCompactTouchViewport() {
-  return window.innerWidth <= 640 || window.innerHeight <= 720;
+function isCondensedHud() {
+  return window.innerWidth <= 900 || window.innerHeight <= 760;
 }
 
-function clearTouchPromptTimer() {
-  if (!touchPromptTimer) {
+function syncHudEnvironment() {
+  document.body.classList.toggle("touch-mode", game.isTouchMode);
+  document.body.classList.toggle("desktop-mode", !game.isTouchMode);
+  document.body.classList.toggle("compact-hud", isCompactHud());
+  document.body.classList.toggle("condensed-hud", isCondensedHud());
+}
+
+function clearHudCollapseTimer() {
+  if (!hudCollapseTimer) {
     return;
   }
 
-  window.clearTimeout(touchPromptTimer);
-  touchPromptTimer = 0;
+  window.clearTimeout(hudCollapseTimer);
+  hudCollapseTimer = 0;
 }
 
 function setPanelCollapsed(panelKey, collapsed) {
@@ -321,37 +313,30 @@ function setPanelCollapsed(panelKey, collapsed) {
   }
 
   panel.element.classList.toggle("collapsed", collapsed);
-  panel.toggle.textContent = collapsed ? "Show" : "Hide";
+  panel.toggle.textContent = collapsed ? panel.collapsedText : panel.expandedText;
   panel.toggle.setAttribute("aria-expanded", String(!collapsed));
   panel.toggle.setAttribute("aria-label", collapsed ? panel.expandLabel : panel.collapseLabel);
 }
 
-function scheduleTouchPromptCollapse() {
-  clearTouchPromptTimer();
-  if (!game.isTouchMode || !game.running || touchPrompt.classList.contains("hidden") || touchPrompt.classList.contains("collapsed")) {
+function collapseInfoPanel() {
+  clearHudCollapseTimer();
+  setPanelCollapsed("brand", true);
+}
+
+function scheduleHudCollapse() {
+  clearHudCollapseTimer();
+  if ((!game.isTouchMode && !isCondensedHud()) || brandPanel.classList.contains("collapsed")) {
     return;
   }
 
-  touchPromptTimer = window.setTimeout(() => {
-    setPanelCollapsed("touch", true);
-    touchPromptTimer = 0;
-  }, 4200);
+  hudCollapseTimer = window.setTimeout(() => {
+    collapseInfoPanel();
+  }, 3200);
 }
 
 function syncInstructionPanels() {
-  setPanelCollapsed("brand", true);
-  setPanelCollapsed("controls", true);
-
-  if (!game.isTouchMode) {
-    clearTouchPromptTimer();
-    touchPrompt.classList.add("hidden");
-    setPanelCollapsed("touch", true);
-    return;
-  }
-
-  touchPrompt.classList.remove("hidden");
-  setPanelCollapsed("touch", isCompactTouchViewport());
-  scheduleTouchPromptCollapse();
+  syncHudEnvironment();
+  collapseInfoPanel();
 }
 
 function createTrackSegment(zPosition) {
@@ -992,7 +977,7 @@ function createScorePanel(player) {
   panel.className = "score-card";
   panel.style.setProperty("--accent", player.accent);
   panel.innerHTML = `
-    <strong>${player.name}</strong>
+    <strong class="score-label">${player.name}</strong>
     <div class="lives-display" aria-label="${CONFIG.startingLives} lives"></div>
     <p class="score-value">0</p>
     <p class="score-meta">Distance 0m | Coins 0</p>
@@ -1158,61 +1143,66 @@ function updatePanel(player) {
   }
 
   const compactHud = isCompactHud();
+  const condensedHud = isCondensedHud();
+  const label = player.panel.querySelector(".score-label");
+  label.textContent = condensedHud
+    ? (players.length > 1 ? `P${player.id + 1}` : "You")
+    : player.name;
 
   updateLivesDisplay(player);
   player.panel.querySelector(".score-value").textContent = String(Math.floor(player.score));
   player.panel.querySelector(".score-meta").textContent = players.length > 1
     ? (compactHud
-        ? `${Math.floor(player.distance)}m | ${player.coins}c | ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`
+        ? `${Math.floor(player.distance)}m | ${player.coins}c`
         : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins} | Life ${Math.floor(player.score)}/${CONFIG.scoreStealThreshold}`)
     : (compactHud
         ? `${Math.floor(player.distance)}m | ${player.coins}c`
         : `Distance ${Math.floor(player.distance)}m | Coins ${player.coins}`);
 
   const status = player.panel.querySelector(".score-status");
+  let statusText = "";
+
   if (!player.alive) {
-    status.textContent = compactHud ? "out" : "out of hearts";
+    statusText = compactHud ? "out" : "out of hearts";
     status.classList.add("out");
-    return;
-  }
-
-  if (player.invulnerableTimer > 0) {
-    status.textContent = `shield ${player.invulnerableTimer.toFixed(1)}s`;
-    status.classList.remove("out");
-    return;
-  }
-
-  const powerUps = [];
-  if (player.jetpackTimer > 0) {
-    powerUps.push(`jetpack ${player.jetpackTimer.toFixed(1)}s`);
-  }
-  if (player.magnetTimer > 0) {
-    powerUps.push(`magnet ${player.magnetTimer.toFixed(1)}s`);
-  }
-
-  if (powerUps.length > 0) {
-    status.textContent = powerUps.join(" | ");
-  } else if (player.slideTimer > 0) {
-    status.textContent = "sliding";
-  } else if (player.onTrainId) {
-    status.textContent = compactHud ? "train" : "riding train";
-  } else if (player.grounded) {
-    status.textContent = compactHud ? "run" : "running";
+  } else if (player.invulnerableTimer > 0) {
+    statusText = compactHud
+      ? `shield ${player.invulnerableTimer.toFixed(1)}s`
+      : `shield ${player.invulnerableTimer.toFixed(1)}s`;
   } else {
-    status.textContent = compactHud ? "air" : "airborne";
+    const powerUps = [];
+    if (player.jetpackTimer > 0) {
+      powerUps.push(compactHud ? `jet ${player.jetpackTimer.toFixed(1)}s` : `jetpack ${player.jetpackTimer.toFixed(1)}s`);
+    }
+    if (player.magnetTimer > 0) {
+      powerUps.push(compactHud ? `mag ${player.magnetTimer.toFixed(1)}s` : `magnet ${player.magnetTimer.toFixed(1)}s`);
+    }
+
+    if (powerUps.length > 0) {
+      statusText = powerUps.join(" | ");
+    } else if (player.slideTimer > 0) {
+      statusText = compactHud ? "slide" : "sliding";
+    } else if (player.onTrainId) {
+      statusText = compactHud ? "train" : "riding train";
+    } else if (!player.grounded) {
+      statusText = compactHud ? "air" : "airborne";
+    } else if (!compactHud) {
+      statusText = "running";
+    }
   }
-  status.classList.remove("out");
+
+  status.textContent = statusText;
+  status.classList.toggle("out", !player.alive);
+  status.classList.toggle("compact-hidden", compactHud && statusText === "");
 }
 
 function updateHudCopy() {
   if (game.isTouchMode) {
-    modeLabel.textContent = "Solo run. Coins are your score, respawns are quick, and train roofs are more forgiving.";
-    controlHint.textContent = "Swipe left or right to switch lanes. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
-    touchPromptText.textContent = "Swipe left or right to change lanes. Swipe up to jump, down to slide, and while jetpacking swipe up or down to change height.";
+    modeLabel.textContent = "Solo run. Coins are your score, respawns are quick, and train roofs are forgiving.";
+    controlHint.textContent = "Swipe left or right to switch lanes. Swipe up to jump. Swipe down to slide. While jetpacking, swipe up or down to change height.";
   } else {
     modeLabel.textContent = "Shared duel. Every 100 points steals one heart from the other runner.";
-    controlHint.textContent = "Player 1: W A S D. Player 2: arrow keys. Hold up or down while jetpacking to change height, and use ramps to reach train roofs.";
-    touchPromptText.textContent = "";
+    controlHint.textContent = "Player 1 uses W A S D. Player 2 uses the arrow keys. Hold up or down while jetpacking to change height and use ramps to reach train roofs.";
   }
 
   syncInstructionPanels();
@@ -1277,7 +1267,7 @@ function resetGame() {
   game.nextPickupDistance = randomBetween(CONFIG.spawnPickupRange[0] * 0.6, CONFIG.spawnPickupRange[1] * 0.8);
 
   overlay.classList.add("hidden");
-  clearTouchPromptTimer();
+  clearHudCollapseTimer();
   resetWorldDecor();
   clearGameplayObjects();
   resetPlayers();
@@ -1379,50 +1369,92 @@ function handleKeyUp(event) {
   pressed.delete(event.code);
 }
 
-function registerTouchControls() {
-  window.addEventListener("pointerdown", (event) => {
-    if (!game.isTouchMode || event.pointerType === "mouse") {
-      return;
-    }
-    touchState = { x: event.clientX, y: event.clientY, time: performance.now() };
-  });
+function beginTouchGesture(clientX, clientY) {
+  touchState = { x: clientX, y: clientY, time: performance.now() };
+}
 
-  window.addEventListener("pointerup", (event) => {
-    if (!game.isTouchMode || !touchState || event.pointerType === "mouse") {
+function endTouchGesture(clientX, clientY) {
+  if (!game.isTouchMode || !touchState) {
+    touchState = null;
+    return;
+  }
+
+  const elapsed = performance.now() - touchState.time;
+  const dx = clientX - touchState.x;
+  const dy = clientY - touchState.y;
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+
+  if (elapsed <= CONFIG.swipeWindow && Math.max(absX, absY) >= CONFIG.swipeThreshold) {
+    const player = players[0];
+    if (!player) {
       touchState = null;
       return;
     }
 
-    const elapsed = performance.now() - touchState.time;
-    const dx = event.clientX - touchState.x;
-    const dy = event.clientY - touchState.y;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
+    if (absX > absY) {
+      shiftLane(player, dx < 0 ? -1 : 1);
+    } else if (player.jetpackTimer > 0) {
+      nudgeJetpackHeight(player, dy < 0 ? 1 : -1);
+    } else if (dy < 0) {
+      triggerJump(player);
+    } else {
+      triggerSlide(player);
+    }
 
-    if (elapsed <= CONFIG.swipeWindow && Math.max(absX, absY) >= CONFIG.swipeThreshold) {
-      const player = players[0];
-      if (!player) {
+    if (!brandPanel.classList.contains("collapsed")) {
+      collapseInfoPanel();
+    }
+  }
+
+  touchState = null;
+}
+
+function registerTouchControls() {
+  if ("PointerEvent" in window) {
+    window.addEventListener("pointerdown", (event) => {
+      if (!game.isTouchMode || event.pointerType === "mouse") {
+        return;
+      }
+      beginTouchGesture(event.clientX, event.clientY);
+    });
+
+    window.addEventListener("pointerup", (event) => {
+      if (!game.isTouchMode || event.pointerType === "mouse") {
         touchState = null;
         return;
       }
+      endTouchGesture(event.clientX, event.clientY);
+    });
 
-      if (absX > absY) {
-        shiftLane(player, dx < 0 ? -1 : 1);
-      } else if (player.jetpackTimer > 0) {
-        nudgeJetpackHeight(player, dy < 0 ? 1 : -1);
-      } else if (dy < 0) {
-        triggerJump(player);
-      } else {
-        triggerSlide(player);
-      }
+    window.addEventListener("pointercancel", () => {
+      touchState = null;
+    });
+    return;
+  }
 
-      if (!touchPrompt.classList.contains("collapsed")) {
-        clearTouchPromptTimer();
-        setPanelCollapsed("touch", true);
-      }
+  window.addEventListener("touchstart", (event) => {
+    if (!game.isTouchMode || event.changedTouches.length === 0) {
+      return;
     }
+
+    const touch = event.changedTouches[0];
+    beginTouchGesture(touch.clientX, touch.clientY);
+  }, { passive: true });
+
+  window.addEventListener("touchend", (event) => {
+    if (!game.isTouchMode || event.changedTouches.length === 0) {
+      touchState = null;
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    endTouchGesture(touch.clientX, touch.clientY);
+  }, { passive: true });
+
+  window.addEventListener("touchcancel", () => {
     touchState = null;
-  });
+  }, { passive: true });
 }
 
 function updateWorld(delta) {
@@ -1864,9 +1896,10 @@ function handleResize() {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 
-  if (game.isTouchMode && isCompactTouchViewport() && !touchPrompt.classList.contains("hidden")) {
-    clearTouchPromptTimer();
-    setPanelCollapsed("touch", true);
+  syncHudEnvironment();
+
+  if (game.isTouchMode || isCondensedHud()) {
+    collapseInfoPanel();
   }
 
   players.forEach((player) => updatePanel(player));
@@ -1904,16 +1937,13 @@ window.addEventListener("blur", () => pressed.clear());
 window.addEventListener("resize", handleResize);
 
 toggleBrandPanel.addEventListener("click", () => {
-  setPanelCollapsed("brand", !brandPanel.classList.contains("collapsed"));
-});
-
-toggleControlPanel.addEventListener("click", () => {
-  setPanelCollapsed("controls", !controlPanel.classList.contains("collapsed"));
-});
-
-toggleTouchPrompt.addEventListener("click", () => {
-  clearTouchPromptTimer();
-  setPanelCollapsed("touch", !touchPrompt.classList.contains("collapsed"));
+  const nextCollapsed = !brandPanel.classList.contains("collapsed");
+  setPanelCollapsed("brand", nextCollapsed);
+  if (nextCollapsed) {
+    clearHudCollapseTimer();
+  } else {
+    scheduleHudCollapse();
+  }
 });
 
 restartInline.addEventListener("click", resetGame);
@@ -1921,7 +1951,7 @@ restartOverlay.addEventListener("click", resetGame);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register(new URL("./sw.js", import.meta.url)).catch((error) => {
+    navigator.serviceWorker.register(new URL("./sw.js?v=0.4", import.meta.url)).catch((error) => {
       console.warn("Service worker registration failed.", error);
     });
   });

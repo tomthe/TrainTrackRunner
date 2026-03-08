@@ -12,51 +12,31 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css">
-  <script type="module" src="./game.js?v=0.3"></script>
+  <link rel="stylesheet" href="./styles.css?v=0.4">
+  <script type="module" src="./game.js?v=0.4"></script>
 </head>
 <body>
   <div class="app-frame">
     <canvas id="gameCanvas" aria-label="Train Track Runner game canvas"></canvas>
 
     <header class="hud-bar">
-      <div id="brandPanel" class="brand-panel collapsible-panel">
-        <div class="panel-actions">
-          <span class="panel-tag">Info</span>
-          <button id="toggleBrandPanel" class="panel-toggle" type="button" aria-controls="brandPanelBody" aria-expanded="true">Hide</button>
+      <div class="hud-leading">
+        <div id="brandPanel" class="brand-panel collapsible-panel collapsed">
+          <div class="panel-actions">
+            <span class="panel-tag">Info</span>
+            <button id="toggleBrandPanel" class="panel-toggle" type="button" aria-controls="brandPanelBody" aria-expanded="false">Info</button>
+          </div>
+          <div id="brandPanelBody" class="panel-body">
+            <p id="modeLabel" class="mode-copy"></p>
+            <p id="controlHint" class="control-hint"></p>
+          </div>
         </div>
-        <div id="brandPanelBody" class="panel-body">
-          <p class="eyebrow">dual-run endless sprint</p>
-          <h1>Train Track Runner</h1>
-          <p id="modeLabel" class="mode-copy"></p>
-        </div>
+
+        <button id="restartInline" class="ghost-button restart-button" type="button">Restart</button>
       </div>
 
       <div id="scoreboard" class="scoreboard" aria-live="polite"></div>
     </header>
-
-    <footer class="footer-bar">
-      <div id="controlPanel" class="control-panel collapsible-panel">
-        <div class="panel-actions">
-          <span class="panel-tag">Controls</span>
-          <button id="toggleControlPanel" class="panel-toggle" type="button" aria-controls="controlPanelBody" aria-expanded="true">Hide</button>
-        </div>
-        <div id="controlPanelBody" class="panel-body">
-          <p id="controlHint" class="control-hint"></p>
-        </div>
-      </div>
-      <button id="restartInline" class="ghost-button" type="button">Restart</button>
-    </footer>
-
-    <div id="touchPrompt" class="touch-prompt hidden collapsible-panel">
-      <div class="panel-actions">
-        <span class="panel-tag">Swipe Help</span>
-        <button id="toggleTouchPrompt" class="panel-toggle" type="button" aria-controls="touchPromptBody" aria-expanded="true">Hide</button>
-      </div>
-      <div id="touchPromptBody" class="panel-body">
-        <p id="touchPromptText" class="touch-prompt-copy"></p>
-      </div>
-    </div>
 
     <section id="overlay" class="overlay hidden" aria-live="polite">
       <div class="overlay-card">

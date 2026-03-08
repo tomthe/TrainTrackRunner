@@ -1,12 +1,57 @@
-const CACHE_NAME = "train-track-runner-v1";
+const CACHE_NAME = "train-track-runner-v20260308-2";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./game.js",
+  "./styles.css?v=0.4",
+  "./game.js?v=0.4",
   "./manifest.webmanifest",
   "./icon.svg",
 ];
+
+function shouldUseNetworkFirst(request) {
+  const url = new URL(request.url);
+  return request.mode === "navigate"
+    || url.pathname.endsWith(".css")
+    || url.pathname.endsWith(".js")
+    || url.pathname.endsWith(".html")
+    || url.pathname.endsWith(".webmanifest");
+}
+
+async function networkFirst(request, fallbackKey) {
+  const cache = await caches.open(CACHE_NAME);
+
+  try {
+    const response = await fetch(request);
+    cache.put(request, response.clone());
+    return response;
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) {
+      return cached;
+    }
+
+    if (fallbackKey) {
+      const fallback = await caches.match(fallbackKey);
+      if (fallback) {
+        return fallback;
+      }
+    }
+
+    throw new Error("Network request failed and no cached response was found.");
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(request);
+  const cache = await caches.open(CACHE_NAME);
+  cache.put(request, response.clone());
+  return response;
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -34,29 +79,9 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("./index.html", responseClone));
-          return response;
-        })
-        .catch(() => caches.match(request).then((cached) => cached || caches.match("./index.html")))
-    );
+    event.respondWith(networkFirst(request, "./index.html"));
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) {
-        return cached;
-      }
-
-      return fetch(request).then((response) => {
-        const responseClone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, responseClone));
-        return response;
-      });
-    })
-  );
+  event.respondWith(shouldUseNetworkFirst(request) ? networkFirst(request) : cacheFirst(request));
 });
